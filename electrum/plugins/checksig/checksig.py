@@ -64,7 +64,7 @@ class ChecksigPlugin(BasePlugin):
 
         env = self.checksig_config.get(wallet, 'env')
         whitelist_path = Path(self.checksig_config.get(wallet, 'whitelist_path'))
-        transaction_csv = Path(self.checksig_config.get(wallet, 'transactions_path')) / env / f"{env}.csv"
+
         for i in range(100):
             p = Path(whitelist_path, f"{env}-frzn0-block{i:02}.json")
             if not p.exists():
@@ -85,3 +85,9 @@ class ChecksigPlugin(BasePlugin):
                     wallet.import_address(address)
                 except BitcoinException:
                     pass
+
+        transaction_csv = Path(self.checksig_config.get(wallet, 'transactions_path')) / env / f"{env}.csv"
+        with open(transaction_csv, encoding="utf-8") as f:
+            data = f.read().splitlines()[1:]
+            for _, txid, label in [x.split(',') for x in data]:
+                wallet.set_label(txid, label)

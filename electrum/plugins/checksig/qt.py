@@ -8,7 +8,8 @@ from PyQt5.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QGridLayout, QLine
 
 from electrum.plugin import hook
 from electrum.i18n import _
-from electrum.gui.qt.util import ThreadedButton, Buttons, EnterButton, WindowModalDialog, OkButton, CloseButton
+from electrum.gui.qt.util import ThreadedButton, Buttons, EnterButton, WindowModalDialog, OkButton, CloseButton, read_QIcon
+from electrum.gui.qt.main_window import StatusBarButton
 
 from .checksig import ChecksigPlugin
 
@@ -23,19 +24,27 @@ class Plugin(ChecksigPlugin):
     def __init__(self, *args):
         ChecksigPlugin.__init__(self, *args)
         self._init_qt_received = False
+        self.status_bar_created = False
 
     def requires_settings(self):
         return True
 
     def settings_widget(self, window: WindowModalDialog):
-        return EnterButton(_('Settings'),
-                           partial(self.settings_dialog, window))
+        if not self.status_bar_created:
+            window.parent().show_warning(_("Restart electrum to finalize the changes"))
+        return QLabel(_(''))
+
+    @hook
+    def create_status_bar(self, parent):
+        self.status_bar_created = True
+        b = StatusBarButton(read_QIcon('checksig.png'), "Checksig", partial(self.settings_dialog, parent))
+        parent.addPermanentWidget(b)
 
     def settings_dialog(self, window: WindowModalDialog):
         wallet = window.parent().wallet
-        d = WindowModalDialog(window, _("Checksig Settings"))
+        d = WindowModalDialog(window, "Checksig " + _("Settings"))
         vbox = QVBoxLayout(d)
-        vbox.addWidget(QLabel("Description"))
+        vbox.addWidget(QLabel(_("Description")))
         grid = QGridLayout()
         vbox.addLayout(grid)
         
@@ -63,18 +72,30 @@ class Plugin(ChecksigPlugin):
         transactions_path_linedit.setText(self.checksig_config.get(wallet, 'transactions_path'))
         transactions_path_button.clicked.connect(lambda: self.choose_file(window, transactions_path_linedit, "Transactions directory"))
         grid.addWidget(transactions_path_linedit, 3, 1)
+        
+        sync_button = QPushButton(_("Sync"))
+        sync_button.clicked.connect(partial(self.load_env, wallet))
+        if not self.checksig_config.get(wallet, 'enabled'):
+            sync_button.setDisabled(True)
+        grid.addWidget(sync_button, 4, 0)
 
-        vbox.addLayout(Buttons(CloseButton(d), OkButton(d)))
+        def save_settings():
+            self.checksig_config.set(wallet, 'enabled', enabled.isChecked())
+            if enabled.isChecked():
+                sync_button.setDisabled(False)
+            else:
+                sync_button.setDisabled(True)
+            self.checksig_config.set(wallet, 'env', env_linedit.text())
+            self.checksig_config.set(wallet, 'whitelist_path', whitelist_path_linedit.text())
+            self.checksig_config.set(wallet, 'transactions_path', transactions_path_linedit.text())
 
-        if not d.exec_():
-            return False
+        save_button = QPushButton(_("Save"))
+        save_button.clicked.connect(save_settings)
 
-        self.checksig_config.set(wallet, 'enabled', enabled.isChecked())
-        self.checksig_config.set(wallet, 'env', env_linedit.text())
-        self.checksig_config.set(wallet, 'whitelist_path', whitelist_path_linedit.text())
-        self.checksig_config.set(wallet, 'transactions_path', transactions_path_linedit.text())
+        # grid.addLayout(Buttons(save_button, CloseButton(d), OkButton(d)), 4, 1)
+        grid.addLayout(Buttons(save_button), 4, 1)
 
-        return True
+        return d.exec_()
 
     def choose_file(self, parent, linedit, title):
         dirname = QFileDialog.getExistingDirectory(
